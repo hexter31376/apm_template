@@ -1,0 +1,94 @@
+services:
+  db: # 데이터베이스 컨테이너
+    image: mysql:8.4                 # ✅ MySQL 8.4 LTS 이미지 사용 (MariaDB 대신)
+    container_name: app-mysql        # 컨테이너 이름 지정
+    restart: unless-stopped          # 컨테이너 자동 재시작 정책
+    # no(기본값): 재시작 안 함
+    # always: 무조건 재시작 (호스트 재부팅 후에도 다시 실행)
+    # unless-stopped: 항상 재시작, 단 사용자가 docker stop 한 경우는 제외
+    # on-failure[:횟수]: 비정상 종료(exit code != 0)일 때 지정 횟수만큼만 재시작
+    ports:
+      - "${MYSQL_PORT}:3306"                  # 호스트 ↔ 컨테이너 3306(MySQL 기본 포트) 연결
+    environment:                     # MySQL 초기화 환경변수
+      MYSQL_DATABASE: ${MYSQL_DATABASE}       # 자동 생성할 DB 이름
+      MYSQL_USER: ${MYSQL_USER}               # 자동 생성할 사용자 계정
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}       # 사용자 계정 비밀번호
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD} # root 계정 비밀번호
+      TZ: Asia/Seoul                          # 컨테이너 타임존 설정
+    volumes:                         # 데이터 영속화 및 덤프 파일 공유
+      - db_data:/var/lib/mysql       # MySQL 데이터 파일 → 도커 볼륨(db_data)에 저장 (지속성 보장)
+      - ./dumps:/dumps               # 호스트 dumps 디렉토리 ↔ 컨테이너 /dumps 마운트 (백업/복구용)
+    healthcheck:                     # DB 정상 동작 여부 확인
+      test: CMD-SHELL export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; for S in /var/run/mysqld/mysqld.sock /run/mysqld/mysqld.sock; do [ -S "$$S" ] && mysqladmin --protocol=socket --socket="$$S" -uroot ping --silent && exit 0; done; exit 1
+      # `mysqladmin ping`으로 DB 응답 확인
+      # MYSQL_PWD 환경변수로 비밀번호 전달 → 특수문자 안전
+      # TCP 127.0.0.1 사용 → 소켓 경로 차이 신경 안 써도 됨
+      interval: 5s                   # 5초마다 체크
+      timeout: 5s                    # 응답 대기 5초
+      retries: 60                    # 최대 60번까지 재시도 허용
+      start_period: 180s             # 초기화 180초 동안은 실패해도 무시
+    networks: [backend]              # backend 네트워크에 연결
+
+  php: # PHP-FPM 컨테이너 (애플리케이션 실행 환경)
+    build:
+      context: ./docker/php           # Dockerfile이 있는 경로
+    container_name: app-php-fpm
+    restart: unless-stopped
+    environment:                      # PHP 및 DB 접속 환경변수
+      PHP_MEMORY_LIMIT: 256M
+      PHP_POST_MAX_SIZE: 32M
+      PHP_UPLOAD_MAX_FILESIZE: 32M
+      DB_HOST: db                     # 내부 네트워크에서 DB 서비스 이름으로 접근
+      DB_PORT: 3306                   # DB 기본 포트
+      DB_NAME: ${MYSQL_DATABASE}
+      DB_USER: ${MYSQL_USER}
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - ./src:/var/www/html:rw        # 애플리케이션 소스코드를 컨테이너 /var/www/html에 마운트
+    depends_on:                       # DB가 healthy 상태일 때만 시작
+      db:
+        condition: service_healthy
+    healthcheck:                      # PHP 정상 동작 여부 확인
+      test: ["CMD-SHELL", "tr '\\0' ' ' </proc/1/cmdline | grep -q 'php-fpm' && php -v >/dev/null 2>&1 && exit 0 || exit 1"]
+      # php -v 실행 후 exit code 확인
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks: [backend]
+
+  web: # Apache 웹 서버 컨테이너
+    image: httpd:2.4                  # Apache httpd 2.4 이미지
+    container_name: app-httpd
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT}:80"             # 호스트 HTTP_PORT ↔ 컨테이너 80 연결 (웹 서비스 접근용)
+    volumes:
+      - ./src:/var/www/html:ro        # 소스코드 읽기 전용으로 마운트 (정적 파일 서빙)
+      - ./docker/httpd/httpd.conf:/usr/local/apache2/conf/httpd.conf:ro
+                                      # Apache 메인 설정파일 교체
+    depends_on:                       # php-fpm 컨테이너 healthy 상태여야 시작
+      php:
+        condition: service_healthy
+    networks: [backend]
+
+  adminer: # DB 관리 툴 (웹 기반 UI)
+    image: adminer:4                  # Adminer 4.x 이미지
+    container_name: app-adminer
+    restart: unless-stopped
+    ports:
+      - "${ADMINER_PORT}:8080"        # 호스트 ADMINER_PORT ↔ 컨테이너 8080
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [backend]
+
+# ---------------------------
+# 도커 리소스 정의
+# ---------------------------
+volumes:
+  db_data: # MySQL 데이터가 저장될 도커 볼륨 (도커 엔진이 관리)
+
+networks:
+  backend: # 모든 서비스가 연결될 내부 네트워크
+    driver: bridge # 브리지 네트워크: 컨테이너끼리 서비스명(hostname)으로 통신 가능

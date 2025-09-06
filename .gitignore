@@ -1,0 +1,70 @@
+# ── OS / 편집기 잡파일 ─────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.orig
+*.log
+*.tmp
+*.bak
+
+# IDE / Editor
+.idea/
+.vscode/
+*.code-workspace
+
+# ── 환경변수/시크릿 ────────────────────────────────────────────────
+# 프로젝트 루트의 compose용 .env (DB 비번 등 민감정보 포함)
+.env
+.env.*       # .env.local, .env.dev 등 변형
+
+# ── Docker/Compose 런타임 산출물 ───────────────────────────────────
+# (도커 볼륨은 엔진이 관리하므로 보통 로컬 디렉토리로 생기지 않지만,
+# 실수로 만든 로컬 디렉토리/파일이 있으면 무시)
+docker-data/
+db_data/
+*.pid
+
+# 빌드 캐시/중간 산출물
+**/.cache/
+**/.temp/
+**/tmp/
+
+# ── PHP/Composer ──────────────────────────────────────────────────
+# 컨테이너에서 composer install 하므로 vendor는 추적 불필요
+vendor/
+composer.phar
+
+# 보통 lock은 커밋하는 게 재현성에 유리하지만,
+# 컨테이너 이미지에서만 빌드 고정한다면 필요시 아래 주석 해제해 무시
+# composer.lock
+
+# ── 프레임워크별(있다면) 캐시/로그(일반 PHP 프로젝트에도 무해) ─────
+# Laravel / Symfony 류 공통
+storage/
+bootstrap/cache/
+var/
+cache/
+logs/
+*.cache
+
+# ── 웹 정적/컴파일 산출물(선택) ────────────────────────────────────
+public/build/
+public/dist/
+node_modules/
+npm-debug.log*
+yarn-error.log*
+pnpm-lock.yaml
+package-lock.json
+
+# ── DB 덤프/임시 스크립트 ─────────────────────────────────────────
+dumps/*.sql
+dumps/*.sql.gz
+dumps/*.dump
+dumps/*.tar
+dumps/*.zip
+
+# ── 테스트/커버리지(있다면) ──────────────────────────────────────
+coverage/
+.phpunit.result.cache
+phpunit.xml.cache
